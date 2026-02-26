@@ -17,9 +17,9 @@ const WEIGHTS = {
 // Example: price=129.99, minPrice=39.99, maxPrice=199,99 -> 0.56
 const normalize = (value, min, max) => (value - min) / (max - min || 1)
 
-function makeContext(catalog, users) {
+function makeContext(products, users) {
 	const ages = users.map((user) => user.age)
-	const prices = catalog.map((product) => product.price)
+	const prices = products.map((product) => product.price)
 
 	const minAge = Math.min(...ages)
 	const maxAge = Math.max(...ages)
@@ -27,8 +27,8 @@ function makeContext(catalog, users) {
 	const minPrice = Math.min(...prices)
 	const maxPrice = Math.max(...prices)
 
-	const colors = [...new Set(catalog.map((product) => product.color))]
-	const categories = [...new Set(catalog.map((product) => product.category))]
+	const colors = [...new Set(products.map((product) => product.color))]
+	const categories = [...new Set(products.map((product) => product.category))]
 
 	const colorsIndex = Object.fromEntries(
 		colors.map((color, index) => {
@@ -56,7 +56,7 @@ function makeContext(catalog, users) {
 	})
 
 	const productAvgAgeNorm = Object.fromEntries(
-		catalog.map((product) => {
+		products.map((product) => {
 			const avg = ageCounts[product.name]
 				? ageSums[product.name] / ageCounts[product.name]
 				: avgAge
@@ -66,7 +66,7 @@ function makeContext(catalog, users) {
 	)
 
 	return {
-		catalog,
+		products,
 		users,
 		colorsIndex,
 		categoriesIndex,
@@ -110,16 +110,51 @@ function encodeProduct(product, context) {
 	return tf.concat([price, age, category, color], 0)
 }
 
+function encodeUser(user, context) {
+	if (user.purchases.length) {
+		return tf
+			.stack(user.purchases.map((purchase) => encodeProduct(purchase, context)))
+			.mean(0)
+			.reshape([1, context.dimensions])
+	}
+}
+
+function createTrainingData(context) {
+	const inputs = []
+	const labels = []
+
+	context.users.forEach((user) => {
+		const userVector = encodeUser(user, context).dataSync()
+		context.products.forEach((product) => {
+			const productVector = encodeProduct(product, context).dataSync()
+
+			const label = user.purchases.some((purchase) =>
+				purchase.name === product.name ? 1 : 0,
+			)
+			// combinar user + product
+			inputs.push([...userVector, ...productVector])
+			labels.push(label)
+		})
+	})
+
+	return {
+		xs: tf.tensor2d(inputs),
+		ys: tf.tensor2d(labels, [labels.length, 1]),
+		// user vector + product vector
+		inputDimension: context.dimensions * 2,
+	}
+}
+
 async function trainModel({ users }) {
 	console.log("Training model with users:", users)
 
 	postMessage({ type: workerEvents.progressUpdate, progress: { progress: 50 } })
 
 	// Use root-relative URL: worker script is at /src/workers/ so ./data would be wrong
-	const catalog = await (await fetch("/data/products.json")).json()
+	const products = await (await fetch("/data/products.json")).json()
 
-	const context = makeContext(catalog, users)
-	context.productVectors = catalog.map((product) => {
+	const context = makeContext(products, users)
+	context.productVectors = products.map((product) => {
 		return {
 			name: product.name,
 			meta: { ...product },
@@ -127,9 +162,11 @@ async function trainModel({ users }) {
 		}
 	})
 
-	debugger
-
 	_globalCtx = context
+
+	const trainingData = createTrainingData(context)
+
+	debugger
 
 	postMessage({
 		type: workerEvents.trainingLog,
