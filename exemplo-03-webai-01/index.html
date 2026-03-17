@@ -1,0 +1,76 @@
+<button id="start">Gerar resposta</button>
+<output id="output"></output>
+<!-- https://www.jsdelivr.com/package/npm/markdown -->
+<script src="https://cdn.jsdelivr.net/npm/markdown@0.5.0/lib/markdown.min.js"></script>
+
+<script>
+	const startButton = document.getElementById("start")
+	const output = document.getElementById("output")
+
+	startButton.addEventListener("click", async () => {
+		startButton.disabled = true
+		const params = await LanguageModel.params()
+		console.log("Language Model Params:", params)
+
+		const safeTemperature =
+			typeof params.defaultTemperature === "number"
+				? Math.min(
+						Math.max(params.defaultTemperature, 0),
+						params.maxTemperature,
+					)
+				: 0
+		const safeTopK =
+			Number.isInteger(params.defaultTopK) && params.defaultTopK > 0
+				? Math.min(params.defaultTopK, params.maxTopK)
+				: 1
+
+		console.log({
+			temperature: safeTemperature,
+			topK: safeTopK,
+		})
+
+		const initialPrompts = [
+			{
+				role: "system",
+				content: `Você é um assistente de IA que responde de forma clara e objetiva.`,
+			},
+		]
+
+		const question = "Quem inventou o JavaScript?"
+		output.innerHTML = "Gerando resposta..."
+
+		const sessionConfig = {
+			expectedInputLanguages: ["pt"],
+			initialPrompts,
+			temperature: safeTemperature,
+			topK: safeTopK,
+		}
+
+		let session
+		try {
+			session = await LanguageModel.create(sessionConfig)
+		} catch (error) {
+			output.textContent =
+				"Nao foi possivel iniciar o modelo. Clique novamente se o download estiver em andamento."
+			console.error(error)
+			startButton.disabled = false
+			return
+		}
+
+		const responseStream = await session.promptStreaming([
+			{
+				role: "user",
+				content: question,
+			},
+		])
+		output.innerHTML = ""
+		let fullText = ""
+		for await (const token of responseStream) {
+			fullText += token
+			output.innerHTML = markdown.toHTML(fullText)
+
+			// console.log(token)
+		}
+		startButton.disabled = false
+	})
+</script>
