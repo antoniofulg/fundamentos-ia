@@ -1,0 +1,12 @@
+{
+  "name": "exemplo-06-playwright-testes",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install:browser": "playwright-cli install-browser --browser=chrome",
+    "test": "node ./tests/app.cli.js"
+  },
+  "devDependencies": {
+    "@playwright/cli": "^0.1.1"
+  }
+}
